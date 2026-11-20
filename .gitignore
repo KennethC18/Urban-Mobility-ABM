@@ -1,0 +1,4 @@
+# GAMA headless workspaces and local backups
+.workspace*/
+*.bak
+logs/
