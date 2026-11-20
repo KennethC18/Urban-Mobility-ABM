@@ -1,4 +1,4 @@
-# Uso: python3 -I gen_transfer.py <results_dir> <models_dir> [etiquetas_separadas_por_coma] [archivo_salida.gaml]
+# Uso: python3 -I gen_transfer.py <results_dir> <models_dir> [etiquetas_separadas_por_coma] [archivo_salida.gaml] [escenarios_evaluados]
 #   etiquetas: subconjunto de xstar_Lomas,xstar_South,xstar_GDL_Oeste,base_x3_300 (por defecto: todas)
 #   Omite las combinaciones (config, escenario, semilla) que ya estén en results/transferencia.csv,
 #   para poder adelantar una parte en paralelo sin repetirla.
@@ -6,7 +6,10 @@ import csv, os, sys
 res, mdir = sys.argv[1], sys.argv[2]
 escs = ['Lomas', 'South', 'GDL_Oeste']
 wanted = sys.argv[3].split(',') if len(sys.argv) > 3 and sys.argv[3] else [f'xstar_{e}' for e in escs] + ['base_x3_300']
-outname = sys.argv[4] if len(sys.argv) > 4 else 'transferencia.gaml'
+outname = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else 'transferencia.gaml'
+#   escenarios_evaluados: dónde se evalúan los x* (por defecto los tres). Sirve para correr GDL_Oeste en un
+#   proceso aparte con una simulación a la vez: varias simulaciones GDL en el mismo JVM pueden corromperse.
+where_filter = sys.argv[5].split(',') if len(sys.argv) > 5 and sys.argv[5] else escs
 done = set()
 tf = os.path.join(res, 'transferencia.csv')
 if os.path.exists(tf):
@@ -25,7 +28,7 @@ maps = []
 for lab, where, x1, x2, x3 in configs:
     for e in where:
         for s in range(1, 6):
-            if (lab, e, s) not in done:
+            if (lab, e, s) not in done and e in where_filter:
                 maps.append(f'["config_label"::"{lab}", "scenario"::"{e}", "pt_speed_factor"::{x1}, "pt_wait_time"::{x2}, "lane_capacity_per_hour"::{x3}, "seed"::{s}.0]')
 body = ',\n        '.join(maps)
 gaml = f'''model UrbanMobility_Transferencia

@@ -161,7 +161,10 @@ global {
             road r <- road(current_edge);
             if r != nil { r.volume <- r.volume + persons_per_agent; }
         }
-        ask net_roads { do update_time; }
+        ask net_roads {
+            vc <- (volume * 60.0 / eff_time) / (lanes * lane_capacity_per_hour);
+            current_time <- free_time * (1.0 + bpr_alpha * (vc ^ bpr_beta));
+        }
 
         // 2. métricas
         do compute_metrics;
@@ -177,7 +180,8 @@ global {
         // T̄ = promedio, entre agentes, del tiempo REAL de su último viaje terminado.
         // Si el viaje en curso ya lleva más que eso (p. ej. un viaje atorado), se usa lo que lleva.
         list<commuter> active <- commuter where (each.chosen_mode != nil);
-        avg_travel_time <- empty(active) ? 0.0 : mean(active collect each.realized_tt());
+        avg_travel_time <- empty(active) ? 0.0
+            : mean(active collect max(each.last_trip_min, each.traveling ? (time - each.trip_start) / 60.0 : 0.0));
 
         add avg_travel_time to: tt_hist;
         avg_travel_time_w <- mean(last(window_size, tt_hist));
@@ -206,7 +210,7 @@ global {
 
         list<road> used <- net_roads where (each.volume > 0);
         congestion_index <- empty(used) ? 0.0
-            : sum(used collect (each.vc_ratio() * each.volume)) / sum(used collect each.volume);
+            : sum(used collect (each.vc * each.volume)) / sum(used collect each.volume);
     }
 }
 
@@ -221,6 +225,7 @@ species road {
     float	eff_time	<- 0.0;		// min; free_time con longitud mínima, para el cálculo de flujo
     float	volume		<- 0.0;		// autos (personas-auto) en el tramo en este instante
     float	current_time <- 0.0;	// min
+    float	vc			<- 0.0;		// v/c del ciclo actual (se recalcula justo después de contar el volumen)
     bool	in_network	<- false;
 
     action setup_attributes {
@@ -231,18 +236,13 @@ species road {
         current_time <- free_time;
     }
 
-    float capacity { return lanes * lane_capacity_per_hour; }	// veh/h
-
-    // Flujo equivalente (veh/h): N autos en un tramo que se cruza en eff_time minutos
-    // generan N * 60 / eff_time veh/h. Así volumen y capacidad quedan en las mismas unidades.
-    float vc_ratio { return (volume * 60.0 / eff_time) / capacity(); }
-
-    action update_time {
-        current_time <- free_time * (1.0 + bpr_alpha * (vc_ratio() ^ bpr_beta));
-    }
+    // v/c y tiempo BPR se calculan en el reflejo global (update_traffic) como atributos, NO con acciones:
+    // en GAMA 2025.6 cada llamada a una acción crea un ThreadLocal; con ~7,000 calles por ciclo, la tabla de
+    // ThreadLocals de un hilo puede crecer hasta volver la simulación decenas de veces más lenta.
+    //   Flujo equivalente (veh/h): N autos en un tramo que se cruza en eff_time min generan N * 60 / eff_time veh/h.
+    //   vc = flujo / (carriles * capacidad por carril);  current_time = free_time * (1 + alpha * vc^beta)
 
     aspect default {
-        float vc <- vc_ratio();
         rgb c <- (vc < 0.6) ? #lightgray : ((vc < 1.0) ? #orange : #red);
         draw shape color: c width: road_draw_width;
     }
@@ -292,11 +292,8 @@ species commuter skills: [moving] {
         location <- home;
     }
 
-    // Tiempo real que aporta este agente al objetivo (min)
-    float realized_tt {
-        float elapsed <- traveling ? (time - trip_start) / 60.0 : 0.0;
-        return max(last_trip_min, elapsed);
-    }
+    // Tiempo real que aporta este agente al objetivo (min): max(último viaje terminado, lo que lleva el actual).
+    // Se calcula en línea en update_objective (sin acción, por la misma razón que vc en road).
 
     // ---------------------------------------------------
     // Estimar cuánto tardaría el tramo actual con las calles como están ahora
@@ -327,17 +324,6 @@ species commuter skills: [moving] {
     }
 
     // ---------------------------------------------------
-    // La velocidad (km/h) que "le toca" ahora mismo, según qué tan llena está su calle
-    // ---------------------------------------------------
-    float target_speed_kmh {
-        road r <- road(current_edge);
-        float base_kmh <- (r = nil) ? free_speed_kmh
-            : (r.speed_kmh / (1.0 + bpr_alpha * (r.vc_ratio() ^ bpr_beta)));
-        // nunca 0: en un embotellamiento se avanza lento, pero se avanza (si no, la red se traba para siempre)
-        return max(min_speed_kmh, (chosen_mode = "pt") ? (base_kmh / pt_speed_factor) : base_kmh);
-    }
-
-    // ---------------------------------------------------
     // Un ciclo de viaje: esperar el camión si toca, o avanzar un poco
     // ---------------------------------------------------
     reflex do_trip {
@@ -349,7 +335,12 @@ species commuter skills: [moving] {
             // sin camino (no debería pasar con la componente conexa principal)
             do arrive(false);
         } else {
-            float target <- target_speed_kmh();
+            // velocidad (km/h) que "le toca" según qué tan llena está su calle;
+            // nunca 0: en un embotellamiento se avanza lento, pero se avanza (si no, la red se traba para siempre)
+            road r <- road(current_edge);
+            float base_kmh <- (r = nil) ? free_speed_kmh
+                : (r.speed_kmh / (1.0 + bpr_alpha * (r.vc ^ bpr_beta)));
+            float target <- max(min_speed_kmh, (chosen_mode = "pt") ? (base_kmh / pt_speed_factor) : base_kmh);
             current_speed <- (current_speed < target)
                 ? min(max(current_speed, min_speed_kmh) * (1.0 + acceleration_rate), target)
                 : max(current_speed * (1.0 - deceleration_rate), target);
