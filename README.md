@@ -48,9 +48,45 @@ Run headless, e.g.: `gama-headless -m 9g -hpc 4 -batch PSO_South models/pso_sout
 
 ## Results
 
-- `results/pso_<scenario>_limpio.csv`: one row per PSO evaluation (`iteracion` 0 = initial swarm).
-- `results/transferencia*.csv`: transfer / robustness runs.
-- `videos/south_normal.mp4`, `videos/south_x3_300.mp4`: South with default capacity (700 veh/h/lane)
-  and with 300 veh/h/lane (cars in red, PT in blue, links coloured by v/c).
+All runs: 500 cycles of 10 s (~83 simulated minutes); objective = mean realized travel time over the last
+100 cycles (min) plus budget penalty.
 
-Work in progress: PSO for `South` and `GDL_Oeste` and the transfer test are still running.
+### PSO per scenario (8 particles, 5 iterations, 48 evaluations, seed fixed)
+
+| Scenario | x* (pt_speed_factor, pt_wait_time, lane_capacity) | f(x*) (min) | g1(x*) | car share | Evaluations | Time |
+|---|---|---|---|---|---|---|
+| Lomas | (5.00, 3.25, 958) | 8.54 | −17.87 | 0.88 | 48 | 4.9 min |
+| South | (3.16, 5.82, 1050) | 11.76 | −18.55 | 0.95 | 48 | 37.9 min |
+| GDL_Oeste | (2.87, 8.27, 1050) | 23.86 | −19.57 | 0.99 | 48 | 137.4 min |
+
+None of the three runs converged (best value found in iterations 2–3, not improved afterwards).
+The budget constraint is inactive at every x*; road capacity is the dominant lever.
+Files: `results/pso_<scenario>_limpio.csv` (`iteracion` 0 = initial swarm).
+
+### Transfer and robustness (each x* on every network, 5 seeds; mean ± sd of f in minutes)
+
+| x* from \ evaluated on | Lomas | South | GDL_Oeste |
+|---|---|---|---|
+| x*_Lomas | **8.74 ± 0.15** | 14.17 ± 0.25 (+23 %) | 29.71 ± 1.40 (+30 %) |
+| x*_South | 7.90 ± 0.23 (−10 %) | **11.51 ± 0.21** | 23.36 ± 0.94 (+2 %) |
+| x*_GDL_Oeste | 8.31 ± 0.17 (−5 %) | 11.90 ± 0.21 (+3 %) | **22.94 ± 0.85** |
+
+- The configuration tuned on the small network (Lomas) transfers badly to the larger ones (+23 % and +30 %,
+  Welch t = 18.5 and 9.2).
+- x*_South and x*_GDL_Oeste are nearly interchangeable (+1.8 % in GDL_Oeste, t = 0.7; +3.4 % in South, t = 2.9).
+- On Lomas, the other networks' x* beat Lomas' own x* — with only 48 evaluations PSO did not reach Lomas' optimum.
+- Seed-to-seed variability: sd of T 2–5 %, sd of car share ≤ 0.022.
+
+Key case, South with default PT and 300 veh/h/lane (5 seeds): T = 31.06 ± 0.84 min, car share 0.975 ± 0.007;
+realized car time 34.1 ± 0.7 min vs. realized PT time 20.5 ± 1.2 min (averages over different trips).
+
+Files: `results/transferencia.csv` (one row per run; the `seed` column always shows 1.0 — GAMA logs the
+experiment seed, but each run used seed 1–5), `results/transferencia_resumen.csv`.
+
+### Videos
+`videos/south_normal.mp4`, `videos/south_x3_300.mp4`: South with default capacity (700 veh/h/lane) and with
+300 veh/h/lane (cars in red, PT in blue, links coloured by v/c).
+
+### Notes on running
+GDL_Oeste must be run with one simulation per JVM (`-hpc 1`): several GDL_Oeste simulations initialised in
+parallel in the same JVM occasionally end with removed links inside the network and a hung batch.
