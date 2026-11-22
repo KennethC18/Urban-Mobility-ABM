@@ -83,10 +83,36 @@ realized car time 34.1 ± 0.7 min vs. realized PT time 20.5 ± 1.2 min (averages
 Files: `results/transferencia.csv` (one row per run; the `seed` column always shows 1.0 — GAMA logs the
 experiment seed, but each run used seed 1–5), `results/transferencia_resumen.csv`.
 
+### Road capacity sweep (default PT, 5 seeds; mean ± sd of realized T in minutes)
+
+| Scenario | x3 = 300 | x3 = 700 | x3 = 1050 |
+|---|---|---|---|
+| Lomas | 23.44 ± 0.77 | 9.78 ± 0.52 | 7.16 ± 0.22 |
+| South | 30.67 ± 0.74 | 13.62 ± 0.33 | 9.61 ± 0.17 |
+| GDL_Oeste | 30.27 ± 0.71 | 18.73 ± 0.38 | 17.37 ± 0.43 |
+
+Files: `results/barrido_x3.csv`, `results/barrido_x3_resumen.csv`. Earlier single-run GDL_Oeste values
+(37.1 / 20.5 / 17.8) were obtained with GDL_Oeste sharing a JVM with other simulations and are superseded.
+
+### Perception bias sweep (South, x3 = 300, default PT, 5 seeds)
+
+| Initial PT bias | car share | realized car (min) | car estimated at departure (min) | realized PT (min) |
+|---|---|---|---|---|
+| 0 (exact) | 0.871 ± 0.014 | 33.0 ± 1.4 | 15.1 ± 1.9 | 20.4 ± 0.5 |
+| mean 0, sd 0.3 | 0.920 ± 0.014 | 33.6 ± 0.7 | 14.4 ± 0.8 | 20.7 ± 0.2 |
+| mean 0.5, sd 0.3 | 0.946 ± 0.020 | 34.3 ± 0.9 | 14.3 ± 1.6 | 19.8 ± 0.3 |
+| mean 1.0, sd 0.3 (default) | 0.978 ± 0.006 | 34.3 ± 1.0 | 15.9 ± 2.0 | 19.6 ± 0.4 |
+
+Even with zero bias the car share stays at 0.87: agents estimate car time at departure conditions (~15 vs.
+~33 min realized) and the perceived PT time is derived from that estimate (`car × pt_speed_factor + wait`), so
+PT can never look faster. The bias adds ~11 points. Files: `results/barrido_sesgo*.csv`.
+
 ### Videos
 `videos/south_normal.mp4`, `videos/south_x3_300.mp4`: South with default capacity (700 veh/h/lane) and with
 300 veh/h/lane (cars in red, PT in blue, links coloured by v/c).
 
 ### Notes on running
-GDL_Oeste must be run with one simulation per JVM (`-hpc 1`): several GDL_Oeste simulations initialised in
-parallel in the same JVM occasionally end with removed links inside the network and a hung batch.
+GDL_Oeste must be run with one simulation per JVM (`-hpc 1`): with other simulations in the same JVM it can end
+with removed links inside the network (hung batch) or with different results for the same seed.
+GAMA batch runs are not bit-for-bit reproducible across batches: the same South configuration and seeds gave
+T = 31.06, 30.74 and 30.67 min in three batches (differences within one seed-to-seed sd).
